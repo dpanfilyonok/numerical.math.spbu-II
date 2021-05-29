@@ -1,0 +1,193 @@
+#!fsharp
+
+#r "nuget: MathNet.Numerics.FSharp, 4.15.0"
+
+open MathNet.Numerics.LinearAlgebra
+
+#!markdown
+
+## Варинат 9
+
+#!fsharp
+
+let a = matrix [
+    [-401.64; 200.12]
+    [1200.72; -601.76]
+]
+
+let b = vector [200.; -600.]
+
+#!markdown
+
+1) Найти решение методом Гаусса
+
+#!fsharp
+
+let solveGauss (matrix: Matrix<float>) (freeVector: Vector<float>) = 
+    let n = matrix.RowCount
+    let extendedMatrix = matrix |> Matrix.appendCol freeVector
+    for k = 0 to n - 1 do
+        let temp = extendedMatrix.[k, k]
+        if abs temp > 1e-16 then
+            for j = k + 1 to n do
+                extendedMatrix.[k, j] <- extendedMatrix.[k, j] / temp
+        for i = k + 1 to n - 1 do
+            let temp = extendedMatrix.[i, k]
+            for j = k to n do
+                extendedMatrix.[i, j] <- extendedMatrix.[i, j] - extendedMatrix.[k, j] * temp 
+
+    let solution = DenseVector.zero<float> n
+    for i = n - 1 downto 0 do
+        let mutable sum = 0.
+        for j = i + 1 to n - 1 do
+            sum <- sum + extendedMatrix.[i, j] * solution.[j]
+        solution.[i] <- extendedMatrix.[i, n] - sum
+
+    solution  
+
+#!fsharp
+
+let solution = solveGauss a b
+printfn "Решение системы методом Гаусса: %A" solution
+
+#!markdown
+
+2) Преобразовать исходную систему к системе вида x = H * x + g, где H = E − D^(−1) * A, g = D^(−1) * b. Здесь D - диагональная матрица, у которой на диагонали находятся диагональные элементы матрицы A. Вычислить ||H||∞.
+
+#!fsharp
+
+let transform (matrix: Matrix<float>) (freeVector: Vector<float>) = 
+    let n = matrix.RowCount 
+
+    // H = E - D^(-1) * A   
+    let h = DenseMatrix.init n n (fun i j -> if i = j then 0. else - matrix.[i, j] / matrix.[i, i])
+       
+    // g = D ^ (-1) * b     
+    let g = DenseVector.init n (fun i -> freeVector.[i] / matrix.[i, i])
+
+    h, g
+
+#!fsharp
+
+let (h, g) = transform a b
+let norm = h.InfinityNorm()
+
+printfn "Matrix H = %O" h
+printfn "Vector g = %O" g
+printfn "||H||_inf = %f" norm
+
+#!markdown
+
+3) Найти априорную оценку того k, при котором ||x∗ − xk||∞ < ε, ε = 0.001
+
+#!fsharp
+
+let epsilon = 0.001
+
+let firstEstimation = DenseVector.zero<float> h.RowCount
+
+let calculatePrioriEstimation k (h: Matrix<float>) (g: Vector<float>) (firstEstiomation: Vector<float>) =
+    h.InfinityNorm() ** k * firstEstiomation.InfinityNorm() +  h.InfinityNorm() ** k / (1. - h.InfinityNorm()) * g.InfinityNorm()
+
+let getIterationsCount accuracy (h: Matrix<float>) (g: Vector<float>) (firstEstiomation: Vector<float>) = 
+    let mutable iterationsCount = 1.
+    while calculatePrioriEstimation iterationsCount h g firstEstiomation >= accuracy do 
+        iterationsCount <- iterationsCount + 1.
+
+    int iterationsCount
+
+#!fsharp
+
+printfn "Для получения решения с априорной оценкой %f необходимо %i итераций" 
+    <| epsilon
+    <| getIterationsCount epsilon h g firstEstimation
+
+#!markdown
+
+4) Вычислить решение методом простой итерации с точностью ε = 0.001. Сравнить требуемое фактическое число итераций с априорным значением k. Вывести фактическую погрешность, апостериорную оценку, априорную оценку. Уточнить последнее приближение по Люстернику. Вывести его фактическую погрешность.
+
+#!fsharp
+
+let solveIterative step accuracy (h: Matrix<float>) (g: Vector<float>) = 
+    let mutable previousEstimation = firstEstiomation
+    let mutable currentEstimation: Vector<float> = step h g previousEstimation
+    let mutable iterationCount = 1
+    while (previousEstimation - currentEstimation).L2Norm() >= accuracy do
+        previousEstimation <- currentEstimation
+        currentEstimation <- step h g currentEstimation
+        iterationCount <- iterationCount + 1
+    
+    currentEstimation, iterationCount
+
+let calculatePosteriorEstimation (h: Matrix<float>) (g: Vector<float>) (previousEstiomation: Vector<float>) (currentEstiomation: Vector<float>) = 
+    h.InfinityNorm() / (1. - h.InfinityNorm()) * (currentEstiomation - previousEstiomation).InfinityNorm()
+    
+let solveSimpleIteration (h: Matrix<float>) (g: Vector<float>) =
+    let step (h: Matrix<float>) (g: Vector<float>) (previousX: Vector<float>) = 
+        h * previousX + g
+
+    solveIterative step epsilon h g
+
+#!fsharp
+
+let getMaxEigenValue (matrix: Matrix<float>) = 
+    matrix.Evd().EigenValues.AbsoluteMaximum().Real
+
+let optimizeLusternik (matrix: Matrix<float>) (previousEstiomation: Vector<float>) (currentEstiomation: Vector<float>) = 
+    let maxEigen = getMaxEigenValue matrix
+    if maxEigen > 1. then
+        currentEstiomation
+    else 
+        previousEstiomation + (1. / (1. - maxEigen)) * (currentEstiomation - previousEstiomation)
+
+#!fsharp
+
+let (solution, iterationCount) = solveSimpleIteration h g
+printfn "Решение системы методом простой итерации: %O" solution
+
+#!markdown
+
+5) Вычислить решение систем методом Зейделя с точностью ε = 0.001.
+
+#!fsharp
+
+let solveSeidel (h: Matrix<float>) (g: Vector<float>) =
+    let step (h: Matrix<float>) (g: Vector<float>) (previousX: Vector<float>) = 
+        let x = DenseVector.zero<float> previousX.Count
+        for i = 0 to x.Count - 1 do
+            x.[i] <- g.[i]
+            for j = 0 to i - 2 do
+                x.[i] <- x.[i] + h.[i, j] * x.[i]
+            for j = i - 1 to x.Count - 1 do
+                x.[i] <- x.[i] + h.[i, j] * previousX.[i]
+        x
+
+    solveIterative step epsilon h g
+
+#!fsharp
+
+printfn "Solution by Seidel method with accuracy = %f: %O" 
+    <| epsilon 
+    <| solveSeidel h g
+
+#!markdown
+
+7) Получить решение системы Ax = b методом верхней релаксации с точностью ε = 0.001. В качестве критерия использовать фактическую погрешность.
+
+#!fsharp
+
+let solveUpperRelaxation (h: Matrix<float>) (g: Vector<float>) =
+    let q = 2. / (1. + sqrt (1. - (getMaxEigenValue h) ** 2.)) 
+    let step (h: Matrix<float>) (g: Vector<float>) (previousX: Vector<float>) = 
+        let x = DenseVector.zero<float> previousX.Count
+        for i = 0 to x.Count - 1 do
+            x.[i] <- g.[i] - previousX.[i]
+            for j = 0 to i - 2 do
+                x.[i] <- x.[i] + h.[i, j] * x.[i]
+            for j = i - 1 to x.Count - 1 do
+                x.[i] <- x.[i] + h.[i, j] * previousX.[i]
+            x.[i] <- previousX.[i] + q * x.[i]
+        x
+    
+    solveIterative step epsilon h g 
+    

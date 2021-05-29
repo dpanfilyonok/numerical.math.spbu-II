@@ -1,2 +1,12 @@
-# numerical.math.spbu-II
-Laboratory works of spbu numerical computing course, part 2
+# Методы вычислений, часть 2
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/dpanfilyonok/numerical.math.spbu-II/main?urlpath=lab)
+
+1) Прямые методы решения линейных систем
+    - метод Гаусса с выбором главного элемента для решения СЛАУ
+    - метод Жордана для нахождения обратной матрицы
+    - метод LU-разложения для нахождения определителя матрицы
+2) Итерационные методы решения линейных систем
+    - метод простой итерации
+    - метод Зейделя
+    - метод верхней релаксации
+3) Проблема собственных значений
